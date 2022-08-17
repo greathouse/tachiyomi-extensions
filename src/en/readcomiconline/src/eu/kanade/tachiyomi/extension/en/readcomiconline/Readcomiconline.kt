@@ -2,31 +2,29 @@ package eu.kanade.tachiyomi.extension.en.readcomiconline
 
 import android.app.Application
 import android.content.SharedPreferences
+import android.net.Uri
 import android.util.Base64
+import android.util.Log
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.source.ConfigurableSource
-import eu.kanade.tachiyomi.source.model.Filter
-import eu.kanade.tachiyomi.source.model.FilterList
-import eu.kanade.tachiyomi.source.model.Page
-import eu.kanade.tachiyomi.source.model.SChapter
-import eu.kanade.tachiyomi.source.model.SManga
+import eu.kanade.tachiyomi.source.model.*
 import eu.kanade.tachiyomi.source.online.ParsedHttpSource
 import okhttp3.FormBody
 import okhttp3.Headers
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import rx.Observable
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.text.SimpleDateFormat
-import java.util.Locale
+import java.util.*
 
 class Readcomiconline : ConfigurableSource, ParsedHttpSource() {
 
-    override val name = "ReadComicOnline"
+    override val name = "ReadComicOnline (kofspades)"
 
     override val baseUrl = "https://readcomiconline.li"
 
@@ -37,7 +35,8 @@ class Readcomiconline : ConfigurableSource, ParsedHttpSource() {
     override val client: OkHttpClient = network.cloudflareClient
 
     override fun headersBuilder() = Headers.Builder().apply {
-        add("User-Agent", "Mozilla/5.0 (Windows NT 6.3; WOW64)")
+        Log.e("ROBERT", "ROBERT - headersBuilder")
+        add("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/103.0.5060.53 Safari/537.36")
     }
 
     private val preferences: SharedPreferences by lazy {
@@ -107,6 +106,14 @@ class Readcomiconline : ConfigurableSource, ParsedHttpSource() {
         return manga
     }
 
+    override fun fetchPageList(chapter: SChapter): Observable<List<Page>> {
+        return super.fetchPageList(chapter)
+    }
+
+    override fun fetchImageUrl(page: Page): Observable<String> {
+        return super.fetchImageUrl(page)
+    }
+
     private fun parseStatus(status: String) = when {
         status.contains("Ongoing") -> SManga.ONGOING
         status.contains("Completed") -> SManga.COMPLETED
@@ -130,36 +137,61 @@ class Readcomiconline : ConfigurableSource, ParsedHttpSource() {
     override fun pageListRequest(chapter: SChapter) = GET(baseUrl + chapter.url + "&quality=${qualitypref()}", headers)
 
     override fun pageListParse(document: Document): List<Page> {
+        Log.e("ROBERT", "ROBERT - pageListParse")
         val script = document.selectFirst("script:containsData(lstImages.push)")?.data()
             ?: return emptyList()
 
-        return CHAPTER_IMAGES_REGEX.findAll(script).toList()
+        val mapIndexed = CHAPTER_IMAGES_REGEX.findAll(script).toList()
             .mapIndexed { i, match -> Page(i, "", match.groupValues[1]) }
+        Log.e("ROBERT", "ROBERT - imageRequest::Found Script: $mapIndexed")
+        return mapIndexed
     }
 
     override fun imageUrlParse(document: Document) = ""
 
     override fun imageRequest(page: Page): Request {
-        if (page.imageUrl!!.startsWith("https")) {
-            return super.imageRequest(page)
-        }
+        Log.e("ROBERT", "ROBERT - imageRequest")
+//        if (page.imageUrl!!.startsWith("https")) {
+//            return super.imageRequest(page)
+//        }
 
         val scrambledUrl = page.imageUrl!!
-        val containsS0 = scrambledUrl.contains("=s0")
-        val imagePathResult = runCatching {
-            scrambledUrl
-                .substring(0, scrambledUrl.length - (if (containsS0) 3 else 6))
-                .let { it.substring(4, 21) + it.substring(24) }
-                .let { it.substring(0, it.length - 6) + it[it.length - 2] + it[it.length - 1] }
-                .let { Base64.decode(it, Base64.DEFAULT).toString(Charsets.UTF_8) }
-                .let { it.substring(0, 11) + it.substring(14) }
-                .let { it.substring(0, it.length - 2) + if (containsS0) "=s0" else "=s1600" }
+//        val containsS0 = scrambledUrl.contains("=s0")
+//        val imagePathResult = runCatching {
+//            scrambledUrl
+//                .substring(0, scrambledUrl.length - (if (containsS0) 3 else 6))
+//                .let { it.substring(4, 21) + it.substring(24) }
+//                .let { it.substring(0, it.length - 6) + it[it.length - 2] + it[it.length - 1] }
+//                .let { Base64.decode(it, Base64.DEFAULT).toString(Charsets.UTF_8) }
+//                .let { it.substring(0, 11) + it.substring(14) }
+//                .let { it.substring(0, it.length - 2) + if (containsS0) "=s0" else "=s1600" }
+//        }
+//
+//        val imagePath = imagePathResult.getOrNull()
+//            ?: throw Exception("Failed to decrypt the image URL.")
+
+        val imagePath = decode(scrambledUrl)
+        Log.e("ROBERT", "ROBERT - " +  imagePath);
+        return GET(imagePath)
+    }
+
+    fun decode(scrambled: String): String {
+        val w = scrambled.replace("_x236".toRegex(), "d")
+            .replace("_x945".toRegex(), "g")
+        if (w.indexOf("https") != 0) {
+            var m = w
+            val x = m.substring(m.indexOf("?"))
+            m = if (m.indexOf("=s0?") > 0) m.substring(0, m.indexOf("=s0?")) else m.substring(0, m.indexOf("=s1600?"))
+            m = m.substring(4, 22) + m.substring(25)
+            m = m.substring(0, m.length - 6) + m[m.length - 2] + m[m.length - 1]
+            m = Uri.decode(String(Base64.decode(m, Base64.DEFAULT)))
+            m = m.substring(0, 13) + m.substring(17)
+            m = if (w.indexOf("=s0") > 0) m.substring(0, m.length - 2) + "=s0" else m.substring(0, m.length - 2) + "=s1600"
+            m += x
+//            println("https://2.bp.blogspot.com/$m")
+            return "https://2.bp.blogspot.com/$m"
         }
-
-        val imagePath = imagePathResult.getOrNull()
-            ?: throw Exception("Failed to decrypt the image URL.")
-
-        return GET("https://2.bp.blogspot.com/$imagePath")
+        return w
     }
 
     private class Status : Filter.TriState("Completed")
@@ -249,6 +281,6 @@ class Readcomiconline : ConfigurableSource, ParsedHttpSource() {
         private const val QUALITY_PREF_Title = "Image Quality Selector"
         private const val QUALITY_PREF = "qualitypref"
 
-        private val CHAPTER_IMAGES_REGEX = "lstImages\\.push\\(\"(.*)\"\\)".toRegex()
+        private val CHAPTER_IMAGES_REGEX = "lstImages\\.push\\(\'(.*)\'\\)".toRegex()
     }
 }

@@ -1,4 +1,4 @@
-apply plugin: 'org.jmailen.kotlinter'
+//apply plugin: 'org.jmailen.kotlinter'
 
 android {
     compileSdkVersion AndroidConfig.compileSdk
@@ -92,5 +92,5 @@ dependencies {
     compileOnly(libs.bundles.common)
 }
 
-preBuild.dependsOn(lintKotlin)
-lintKotlin.dependsOn(formatKotlin)
+//preBuild.dependsOn(lintKotlin)
+//lintKotlin.dependsOn(formatKotlin)
